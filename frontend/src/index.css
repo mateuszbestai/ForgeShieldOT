@@ -1,0 +1,97 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ForgeShield OT — calm, high-contrast industrial palette.
+   Light and dark are token swaps; no "hacker movie" neon. */
+@layer base {
+  :root {
+    --background: 210 40% 98%;
+    --foreground: 215 28% 17%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 215 28% 17%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 28% 17%;
+
+    --primary: 199 89% 38%;          /* calm teal-blue */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 40% 94%;
+    --secondary-foreground: 215 25% 27%;
+    --muted: 210 40% 94%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 199 80% 92%;
+    --accent-foreground: 199 89% 28%;
+    --destructive: 0 72% 48%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 214 20% 88%;
+    --input: 214 20% 88%;
+    --ring: 199 89% 38%;
+
+    --sidebar: 215 32% 14%;
+    --sidebar-foreground: 210 30% 88%;
+    --sidebar-border: 215 28% 22%;
+
+    --risk-low: 152 55% 38%;
+    --risk-medium: 38 92% 45%;
+    --risk-high: 22 90% 48%;
+    --risk-critical: 0 72% 48%;
+
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 215 32% 10%;
+    --foreground: 210 30% 92%;
+
+    --card: 215 30% 13%;
+    --card-foreground: 210 30% 92%;
+    --popover: 215 30% 13%;
+    --popover-foreground: 210 30% 92%;
+
+    --primary: 199 89% 48%;
+    --primary-foreground: 215 35% 8%;
+    --secondary: 215 25% 20%;
+    --secondary-foreground: 210 30% 92%;
+    --muted: 215 25% 18%;
+    --muted-foreground: 215 16% 62%;
+    --accent: 199 60% 22%;
+    --accent-foreground: 199 80% 85%;
+    --destructive: 0 62% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 215 25% 22%;
+    --input: 215 25% 22%;
+    --ring: 199 89% 48%;
+
+    --sidebar: 215 35% 9%;
+    --sidebar-foreground: 210 30% 86%;
+    --sidebar-border: 215 28% 18%;
+
+    --risk-low: 152 50% 45%;
+    --risk-medium: 38 90% 55%;
+    --risk-high: 22 88% 56%;
+    --risk-critical: 0 72% 58%;
+  }
+
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+  /* Dense but readable defaults */
+  table {
+    @apply text-sm;
+  }
+}
+
+@layer utilities {
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}

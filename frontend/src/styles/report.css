@@ -1,0 +1,65 @@
+/* Styling for rendered Markdown report content (.prose-report container). */
+.prose-report h1 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 0.75rem 0 0.5rem;
+}
+.prose-report h2 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 0.75rem 0 0.4rem;
+}
+.prose-report h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0.6rem 0 0.3rem;
+}
+.prose-report p {
+  margin: 0.4rem 0;
+  line-height: 1.5;
+}
+.prose-report ul,
+.prose-report ol {
+  margin: 0.4rem 0 0.4rem 1.25rem;
+}
+.prose-report ul {
+  list-style: disc;
+}
+.prose-report ol {
+  list-style: decimal;
+}
+.prose-report li {
+  margin: 0.15rem 0;
+}
+.prose-report code {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.8em;
+  background: hsl(var(--muted));
+  padding: 0.1rem 0.3rem;
+  border-radius: 0.25rem;
+}
+.prose-report a {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+}
+.prose-report hr {
+  border: 0;
+  border-top: 1px solid hsl(var(--border));
+  margin: 0.75rem 0;
+}
+.prose-report table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.6rem 0;
+  font-size: 0.8rem;
+}
+.prose-report th,
+.prose-report td {
+  border: 1px solid hsl(var(--border));
+  padding: 0.35rem 0.5rem;
+  text-align: left;
+}
+.prose-report th {
+  background: hsl(var(--muted));
+  font-weight: 600;
+}

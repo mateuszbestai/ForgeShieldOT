@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(PYTHONPATH=backend .venv/bin/python -c \"import markdown; print\\('markdown', markdown.__version__\\)\")",
+      "Bash(.venv/bin/python -c \"import weasyprint; print\\('weasyprint OK'\\)\")",
+      "Bash(PYTHONPATH=backend .venv/bin/python -m py_compile backend/app/services/report_service.py backend/app/services/integration_service.py backend/app/api/routers/reports.py backend/app/api/routers/integrations.py backend/app/schemas/report.py backend/app/schemas/integration.py)",
+      "Bash(grep -rn \"IntegrationRead\\\\|ReportRead\" backend/app/api/)",
+      "Bash(python3 -)"
+    ]
+  }
+}

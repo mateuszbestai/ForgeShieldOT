@@ -1,0 +1,124 @@
+# =====================================================================
+# ForgeShield OT — local development stack
+# `docker compose up --build` brings up the full platform.
+# Auth is Supabase Cloud (no Supabase container here).
+# =====================================================================
+name: forgeshield-ot
+
+x-backend-env: &backend-env
+  ENVIRONMENT: ${ENVIRONMENT:-development}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
+  POSTGRES_USER: ${POSTGRES_USER:-forgeshield}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-forgeshield_dev_pw}
+  POSTGRES_DB: ${POSTGRES_DB:-forgeshield}
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: 5432
+  REDIS_URL: redis://redis:6379/0
+  SUPABASE_URL: ${SUPABASE_URL:-}
+  SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
+  SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY:-}
+  SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET:-dev-insecure-jwt-secret-change-me}
+  SUPABASE_JWT_AUD: ${SUPABASE_JWT_AUD:-authenticated}
+  AUTH_DEV_BYPASS: ${AUTH_DEV_BYPASS:-false}
+  DEMO_USER_PASSWORD: ${DEMO_USER_PASSWORD:-Demo!ForgeShield123}
+  AI_PROVIDER: ${AI_PROVIDER:-local_foundation_sec}
+  AI_BASE_URL: ${AI_BASE_URL:-http://localhost:8000/v1}
+  AI_API_KEY: ${AI_API_KEY:-not-needed-for-local}
+  AI_MODEL_NAME: ${AI_MODEL_NAME:-Foundation-Sec-8B-Reasoning}
+  AI_TEMPERATURE: ${AI_TEMPERATURE:-0.2}
+  AI_MAX_TOKENS: ${AI_MAX_TOKENS:-1400}
+  AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-60}
+  AI_RATE_LIMIT: ${AI_RATE_LIMIT:-20/minute}
+  AI_VECTOR_ENABLED: ${AI_VECTOR_ENABLED:-false}
+  REPORTS_PDF_ENABLED: ${REPORTS_PDF_ENABLED:-false}
+  SEED_ON_START: ${SEED_ON_START:-true}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-forgeshield}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-forgeshield_dev_pw}
+      POSTGRES_DB: ${POSTGRES_DB:-forgeshield}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres/initdb.sql:/docker-entrypoint-initdb.d/initdb.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-forgeshield} -d ${POSTGRES_DB:-forgeshield}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      <<: *backend-env
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["bash", "/app/infra-entrypoint.sh"]
+
+  worker:
+    build:
+      context: ./backend
+    environment:
+      <<: *backend-env
+      SEED_ON_START: "false"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      backend:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    command: ["celery", "-A", "app.workers.celery_app.celery_app", "worker", "--beat", "--loglevel=info"]
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+      VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:-${SUPABASE_URL:-}}
+      VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY:-${SUPABASE_ANON_KEY:-}}
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      backend:
+        condition: service_started
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
+
+  # Optional DB UI — `docker compose --profile tools up adminer`
+  adminer:
+    image: adminer:4
+    profiles: ["tools"]
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
