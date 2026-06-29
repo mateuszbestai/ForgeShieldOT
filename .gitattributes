@@ -1,0 +1,27 @@
+# Keep LF line endings in the repo so Windows checkouts don't break Linux
+# containers. A CRLF in a shell script makes bash read `set -o pipefail\r`,
+# which aborts the entrypoint before migrations run.
+* text=auto eol=lf
+
+# Scripts and config consumed by Linux tooling must always be LF.
+*.sh            text eol=lf
+backend/infra-entrypoint.sh text eol=lf
+Dockerfile      text eol=lf
+*.dockerfile    text eol=lf
+docker-compose*.yml text eol=lf
+
+# Windows-only files keep CRLF.
+*.bat           text eol=crlf
+*.cmd           text eol=crlf
+*.ps1           text eol=crlf
+
+# Binary assets — never normalize.
+celerybeat-schedule* binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
