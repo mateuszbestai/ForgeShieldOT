@@ -58,6 +58,24 @@ USE_CASE_INSTRUCTIONS: dict[AIUseCase, str] = {
     AIUseCase.EVIDENCE_MAP: (
         "Map the available evidence to the relevant compliance control requirements."
     ),
+    AIUseCase.ATTACK_PATH: (
+        "Produce a DEFENSIVE ATT&CK-for-ICS attack-path analysis for the target asset using "
+        "ONLY the provided records. Describe plausible adversary stages (initial access → "
+        "lateral movement → impact) at a conceptual level, mapping each step to an ATT&CK for "
+        "ICS technique id/name drawn from the evidence. Return the steps in the 'attack_path' "
+        "array, where each step has: stage, technique_id, technique_name, rationale (which "
+        "internal record makes it plausible), detection_gap (where current monitoring would "
+        "miss it), and mitigation (a prioritized SAFE, passive defense). Do NOT provide exploit "
+        "code, payloads, commands, or any active/offensive steps — this is blue-team planning "
+        "only. Put the safe defensive recommendations in 'safe_ot_actions'."
+    ),
+    AIUseCase.THREAT_SCENARIO: (
+        "Construct a DEFENSIVE threat scenario across the in-scope assets using ONLY the "
+        "provided records: how an adversary could plausibly progress through this environment, "
+        "mapped to ATT&CK for ICS, returned as 'attack_path' steps (stage, technique_id, "
+        "technique_name, rationale, detection_gap, mitigation). Emphasize detection-coverage "
+        "gaps and safe, passive mitigations. No exploit code, commands or active steps."
+    ),
 }
 
 

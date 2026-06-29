@@ -2,6 +2,11 @@
 SHELL := /bin/bash
 COMPOSE := docker compose
 
+# ---- Local LLM (llama.cpp / Foundation-Sec-8B-Reasoning GGUF) ----
+LLAMA_GGUF    ?= foundation-sec-8b-reasoning-q4_k_m.gguf
+LLAMA_HF_REPO ?= fdtn-ai/Foundation-Sec-8B-Reasoning-Q4_K_M-GGUF
+LLAMA_VOLUME  ?= forgeshield-ot_llama-models
+
 .DEFAULT_GOAL := help
 
 .PHONY: help
@@ -26,6 +31,26 @@ down: ## Stop the stack
 reset: ## Stop the stack and delete the database volume, then start fresh
 	$(COMPOSE) down -v
 	$(COMPOSE) up --build -d
+
+.PHONY: llama-pull
+llama-pull: ## Download/resume the Foundation-Sec GGUF into the llama-models volume (public; no HF token)
+	docker volume create $(LLAMA_VOLUME) >/dev/null
+	docker run --rm --user 0 -v $(LLAMA_VOLUME):/models curlimages/curl:latest \
+	  -L -C - --retry 5 --retry-delay 5 -o /models/$(LLAMA_GGUF) \
+	  "https://huggingface.co/$(LLAMA_HF_REPO)/resolve/main/$(LLAMA_GGUF)?download=true"
+	@docker run --rm -v $(LLAMA_VOLUME):/models alpine ls -lh /models/$(LLAMA_GGUF)
+	@echo "Expected ~4.9G. If it's smaller, the download was cut off — re-run 'make llama-pull' to resume."
+
+.PHONY: up-gpu
+up-gpu: env ## Build and start the stack with the NVIDIA GPU llama.cpp service
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.gpu.yml up --build -d
+	@echo "Backend:  http://localhost:8000/docs"
+	@echo "Frontend: http://localhost:5173"
+	@echo "LLM:      http://localhost:8080/health"
+
+.PHONY: llama-logs
+llama-logs: ## Tail the llama.cpp inference server logs
+	$(COMPOSE) logs -f llama
 
 .PHONY: logs
 logs: ## Tail logs for all services

@@ -13,6 +13,9 @@ log = get_logger("forgeshield.ai")
 
 class OpenAICompatibleProvider(AIProvider):
     provider_name = "openai_compatible"
+    # Set after each ``complete`` call to the model's reasoning trace when the server
+    # returns one (llama.cpp ``--reasoning-format`` exposes ``reasoning_content``).
+    last_reasoning: str | None = None
 
     def __init__(
         self,
@@ -25,6 +28,7 @@ class OpenAICompatibleProvider(AIProvider):
         self.api_key = api_key or settings.ai_api_key
         self.model_name = model_name or settings.ai_model_name
         self.timeout = timeout or settings.ai_timeout_seconds
+        self.last_reasoning = None
 
     def _headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
@@ -62,9 +66,13 @@ class OpenAICompatibleProvider(AIProvider):
                 "Confirm the model endpoint is reachable (AI_BASE_URL / AI_API_KEY / AI_MODEL_NAME)."
             ) from exc
         try:
-            return data["choices"][0]["message"]["content"] or ""
+            message = data["choices"][0]["message"]
         except (KeyError, IndexError, TypeError) as exc:
             raise ConfigurationError(f"Unexpected AI response shape: {exc}") from exc
+        # Capture the reasoning trace when the server separates it (non-fatal if absent).
+        reasoning = message.get("reasoning_content") if isinstance(message, dict) else None
+        self.last_reasoning = reasoning.strip() if isinstance(reasoning, str) and reasoning.strip() else None
+        return message.get("content") or ""
 
     def health(self) -> bool:
         try:

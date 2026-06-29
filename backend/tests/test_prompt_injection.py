@@ -20,7 +20,7 @@ _FORBIDDEN = [
 ]
 
 _INTERNAL_REF = re.compile(
-    r"^(asset|vuln|detection|control|config_change|incident|evidence):.+"
+    r"^(asset|vuln|detection|control|config_change|incident|evidence|relationship):.+"
 )
 
 

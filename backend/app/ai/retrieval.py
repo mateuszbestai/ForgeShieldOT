@@ -16,15 +16,30 @@ from app.core.enums import (
     AIUseCase,
     ChangeDisposition,
     DetectionStatus,
+    IncidentLinkType,
+    RelationshipType,
 )
-from app.models.asset import Asset, ProtocolObservation
+from app.models.asset import Asset, AssetRelationship, ProtocolObservation
 from app.models.compliance import ComplianceControl, ComplianceEvidence, ComplianceFramework
 from app.models.config_mgmt import ConfigChange
-from app.models.detection import Detection
-from app.models.incident import Incident, IncidentTimelineEvent
+from app.models.detection import Detection, DetectionEvidence
+from app.models.incident import Incident, IncidentLink, IncidentTimelineEvent
 from app.models.vuln import AssetVulnerability, Vulnerability
 
 _MAX_RECORDS = 30
+
+# Detection statuses considered "open" for attack-path / triage retrieval.
+_OPEN_DETECTION_STATUSES = (
+    DetectionStatus.NEW,
+    DetectionStatus.TRIAGING,
+    DetectionStatus.CONFIRMED,
+)
+# Relationship types most relevant to modeling lateral movement.
+_LATERAL_REL_TYPES = (
+    RelationshipType.EW_TO_PLC,
+    RelationshipType.REMOTE_ACCESS,
+    RelationshipType.MANAGEMENT,
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -128,15 +143,39 @@ def incident_record(inc: Incident) -> EvidenceRecord:
     )
 
 
+def relationship_record(
+    rel: AssetRelationship, src: Asset | None, dst: Asset | None
+) -> EvidenceRecord:
+    src_label = src.asset_tag if src else str(rel.src_asset_id)
+    dst_label = dst.asset_tag if dst else str(rel.dst_asset_id)
+    return EvidenceRecord(
+        ref=f"relationship:{rel.id}",
+        label=f"{src_label} → {dst_label}",
+        fields={
+            "src_asset": src_label,
+            "dst_asset": dst_label,
+            "protocol": rel.protocol.value if rel.protocol else None,
+            "relationship_type": rel.relationship_type.value,
+            "is_internet_path": rel.is_internet_path,
+            "is_unknown": rel.is_unknown,
+        },
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Per-use-case context assembly
 # --------------------------------------------------------------------------- #
-def _asset_risk_context(session: Session, asset_id: uuid.UUID, question: str) -> RetrievalContext:
+def _asset_risk_context(
+    session: Session,
+    asset_id: uuid.UUID,
+    question: str,
+    use_case: AIUseCase = AIUseCase.ASSET_RISK,
+) -> RetrievalContext:
     asset = session.get(Asset, asset_id)
     records: list[EvidenceRecord] = []
     headline = "Asset risk analysis"
     if asset is None:
-        return RetrievalContext(AIUseCase.ASSET_RISK, question, "Asset not found", [])
+        return RetrievalContext(use_case, question, "Asset not found", [])
     records.append(asset_record(asset))
     headline = f"Risk analysis for {asset.asset_tag}"
 
@@ -166,7 +205,7 @@ def _asset_risk_context(session: Session, asset_id: uuid.UUID, question: str) ->
     for ch in changes[:5]:
         records.append(change_record(ch))
 
-    return RetrievalContext(AIUseCase.ASSET_RISK, question, headline, records[:_MAX_RECORDS])
+    return RetrievalContext(use_case, question, headline, records[:_MAX_RECORDS])
 
 
 def _daily_brief_context(session: Session, question: str) -> RetrievalContext:
@@ -211,10 +250,15 @@ def _vuln_context(session: Session, vuln_id: uuid.UUID, use_case: AIUseCase, que
     return RetrievalContext(use_case, question, f"Impact of {vuln.cve_id}", records[:_MAX_RECORDS])
 
 
-def _compliance_context(session: Session, control_id: uuid.UUID, question: str) -> RetrievalContext:
+def _compliance_context(
+    session: Session,
+    control_id: uuid.UUID,
+    question: str,
+    use_case: AIUseCase = AIUseCase.COMPLIANCE_GAP,
+) -> RetrievalContext:
     ctrl = session.get(ComplianceControl, control_id)
     if ctrl is None:
-        return RetrievalContext(AIUseCase.COMPLIANCE_GAP, question, "Control not found", [])
+        return RetrievalContext(use_case, question, "Control not found", [])
     fw = session.get(ComplianceFramework, ctrl.framework_id)
     records = [control_record(ctrl, fw.key.value if fw else None)]
     evs = session.exec(
@@ -232,9 +276,12 @@ def _compliance_context(session: Session, control_id: uuid.UUID, question: str) 
                 },
             )
         )
-    return RetrievalContext(
-        AIUseCase.COMPLIANCE_GAP, question, f"Compliance gap for {ctrl.control_ref}", records[:_MAX_RECORDS]
+    headline = (
+        f"Evidence mapping for {ctrl.control_ref}"
+        if use_case == AIUseCase.EVIDENCE_MAP
+        else f"Compliance gap for {ctrl.control_ref}"
     )
+    return RetrievalContext(use_case, question, headline, records[:_MAX_RECORDS])
 
 
 def _config_change_context(session: Session, change_id: uuid.UUID, question: str) -> RetrievalContext:
@@ -263,6 +310,154 @@ def _incident_context(session: Session, incident_id: uuid.UUID, use_case: AIUseC
             {"kind": e.kind.value, "description": sanitize_text(e.description or "")} for e in events[:15]
         ]
     return RetrievalContext(use_case, question, f"Incident {inc.reference}", records[:_MAX_RECORDS])
+
+
+def _attack_path_context(
+    session: Session,
+    asset_id: uuid.UUID,
+    question: str,
+    use_case: AIUseCase = AIUseCase.ATTACK_PATH,
+) -> RetrievalContext:
+    """Assemble the target asset + its blast radius for DEFENSIVE attack-path modeling.
+
+    Grounds on the existing relationship graph, KEV/high-severity vulns and open
+    detections (which already carry ATT&CK-for-ICS techniques). All records become
+    allow-listed citations; nothing offensive is produced — the prompt is blue-team only.
+    """
+    asset = session.get(Asset, asset_id)
+    if asset is None:
+        return RetrievalContext(use_case, question, "Asset not found", [])
+
+    records: list[EvidenceRecord] = [asset_record(asset)]
+    notes: list[str] = []
+    if asset.internet_reachable:
+        notes.append("Target asset is internet-reachable — a plausible initial-access surface.")
+    if asset.remote_access_enabled:
+        notes.append("Target asset has remote access enabled — consider remote-services techniques.")
+
+    # Relationships touching the asset (either direction), most attack-relevant first.
+    rels = list(
+        session.exec(
+            select(AssetRelationship).where(
+                or_(
+                    AssetRelationship.src_asset_id == asset_id,
+                    AssetRelationship.dst_asset_id == asset_id,
+                )
+            )
+        ).all()
+    )
+
+    def _rel_priority(r: AssetRelationship) -> int:
+        score = 0
+        if r.is_internet_path:
+            score += 4
+        if r.relationship_type in _LATERAL_REL_TYPES:
+            score += 2
+        if r.is_unknown:
+            score += 1
+        return -score
+
+    rels.sort(key=_rel_priority)
+
+    neighbor_ids: list[uuid.UUID] = []
+    seen: set[uuid.UUID] = set()
+    for rel in rels[:10]:
+        src = session.get(Asset, rel.src_asset_id)
+        dst = session.get(Asset, rel.dst_asset_id)
+        records.append(relationship_record(rel, src, dst))
+        if rel.is_internet_path:
+            notes.append(f"Internet-exposed path present (relationship:{rel.id}).")
+        other_id = rel.dst_asset_id if rel.src_asset_id == asset_id else rel.src_asset_id
+        if other_id != asset_id and other_id not in seen:
+            seen.add(other_id)
+            neighbor_ids.append(other_id)
+
+    # A few neighbor assets give the model their posture for lateral-movement reasoning.
+    for nid in neighbor_ids[:5]:
+        neighbor = session.get(Asset, nid)
+        if neighbor is not None:
+            records.append(asset_record(neighbor))
+
+    scope_ids = [asset_id, *neighbor_ids]
+
+    # KEV / high-CVSS vulnerabilities across the path scope.
+    av_rows = session.exec(
+        select(AssetVulnerability, Vulnerability)
+        .where(AssetVulnerability.asset_id.in_(scope_ids))  # type: ignore[attr-defined]
+        .where(AssetVulnerability.vuln_id == Vulnerability.id)
+        .where(or_(Vulnerability.known_exploited == True, Vulnerability.cvss_base >= 7.0))  # noqa: E712
+    ).all()
+    seen_vulns: set[str] = set()
+    for _av, vuln in av_rows:
+        if vuln.cve_id in seen_vulns:
+            continue
+        seen_vulns.add(vuln.cve_id)
+        records.append(vuln_record(vuln))
+        if len(seen_vulns) >= 8:
+            break
+
+    # Open detections across the scope (carry ATT&CK-for-ICS techniques).
+    dets = session.exec(
+        select(Detection)
+        .where(Detection.asset_id.in_(scope_ids))  # type: ignore[union-attr]
+        .where(Detection.status.in_(_OPEN_DETECTION_STATUSES))  # type: ignore[attr-defined]
+        .limit(8)
+    ).all()
+    for det in dets:
+        records.append(detection_record(det))
+
+    # Incidents historically linked to the target asset (historical TTPs).
+    links = session.exec(
+        select(IncidentLink)
+        .where(IncidentLink.link_type == IncidentLinkType.ASSET)
+        .where(IncidentLink.entity_id == asset_id)
+    ).all()
+    inc_ids = [ln.incident_id for ln in links][:3]
+    if inc_ids:
+        for inc in session.exec(select(Incident).where(Incident.id.in_(inc_ids))).all():  # type: ignore[attr-defined]
+            records.append(incident_record(inc))
+
+    headline = f"Defensive attack-path analysis for {asset.asset_tag}"
+    return RetrievalContext(use_case, question, headline, records[:_MAX_RECORDS], notes)
+
+
+def _detection_context(
+    session: Session,
+    detection_id: uuid.UUID,
+    use_case: AIUseCase,
+    question: str,
+) -> RetrievalContext:
+    det = session.get(Detection, detection_id)
+    if det is None:
+        return RetrievalContext(use_case, question, "Detection not found", [])
+    records = [detection_record(det)]
+    evs = session.exec(
+        select(DetectionEvidence).where(DetectionEvidence.detection_id == detection_id)
+    ).all()
+    if evs:
+        records[0].fields["evidence"] = [
+            {"kind": e.kind.value, "label": sanitize_text(e.label or "")} for e in evs[:8]
+        ]
+    if det.asset_id:
+        asset = session.get(Asset, det.asset_id)
+        if asset is not None:
+            records.append(asset_record(asset))
+    return RetrievalContext(use_case, question, f"Alert: {det.title}", records[:_MAX_RECORDS])
+
+
+def _next_action_context(
+    session: Session, entity_id: uuid.UUID | None, question: str
+) -> RetrievalContext:
+    """NEXT_ACTION can target a detection, incident or asset — probe by id, stamped NEXT_ACTION."""
+    if entity_id is None:
+        return RetrievalContext(AIUseCase.NEXT_ACTION, question, "Recommended next action", _chat_context(session, question).records)
+    if session.get(Detection, entity_id) is not None:
+        return _detection_context(session, entity_id, AIUseCase.NEXT_ACTION, question)
+    if session.get(Incident, entity_id) is not None:
+        return _incident_context(session, entity_id, AIUseCase.NEXT_ACTION, question)
+    if session.get(Asset, entity_id) is not None:
+        return _asset_risk_context(session, entity_id, question, AIUseCase.NEXT_ACTION)
+    return RetrievalContext(AIUseCase.NEXT_ACTION, question, "Recommended next action", [])
 
 
 def _chat_context(session: Session, question: str) -> RetrievalContext:
@@ -328,11 +523,17 @@ def build_context(
         return _daily_brief_context(session, question)
     if use_case in (AIUseCase.VULN_IMPACT, AIUseCase.REMEDIATION_PLAN) and entity_id:
         return _vuln_context(session, entity_id, use_case, question)
-    if use_case == AIUseCase.COMPLIANCE_GAP and entity_id:
-        return _compliance_context(session, entity_id, question)
+    if use_case in (AIUseCase.COMPLIANCE_GAP, AIUseCase.EVIDENCE_MAP) and entity_id:
+        return _compliance_context(session, entity_id, question, use_case)
     if use_case == AIUseCase.CONFIG_CHANGE and entity_id:
         return _config_change_context(session, entity_id, question)
     if use_case in (AIUseCase.INCIDENT_SUMMARY, AIUseCase.EXEC_SUMMARY) and entity_id:
         return _incident_context(session, entity_id, use_case, question)
+    if use_case in (AIUseCase.ATTACK_PATH, AIUseCase.THREAT_SCENARIO) and entity_id:
+        return _attack_path_context(session, entity_id, question, use_case)
+    if use_case == AIUseCase.ALERT_TRANSLATE and entity_id:
+        return _detection_context(session, entity_id, use_case, question)
+    if use_case == AIUseCase.NEXT_ACTION:
+        return _next_action_context(session, entity_id, question)
     # Default: free-form chat grounded by keyword retrieval.
     return _chat_context(session, question)

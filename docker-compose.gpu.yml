@@ -1,0 +1,28 @@
+# =====================================================================
+# ForgeShield OT — NVIDIA GPU override for the llama.cpp inference service.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+#
+# Requires an NVIDIA GPU + the NVIDIA Container Toolkit (in WSL2: install it
+# inside the distro and ensure `docker run --gpus all` works). The 4.92GB Q4_K_M
+# model fits comfortably in >=6GB VRAM with all layers offloaded; expect answers
+# in a few seconds instead of tens of seconds on CPU.
+# =====================================================================
+services:
+  llama:
+    image: ${LLAMA_IMAGE_GPU:-ghcr.io/ggml-org/llama.cpp:server-cuda}
+    command: >
+      --model /models/${LLAMA_MODEL_FILE:-foundation-sec-8b-reasoning-q4_k_m.gguf}
+      --alias ${AI_MODEL_NAME:-Foundation-Sec-8B-Reasoning}
+      --host 0.0.0.0 --port 8080
+      --ctx-size ${LLAMA_CTX_SIZE:-16384} --n-predict ${LLAMA_N_PREDICT:-2048}
+      --jinja --reasoning-format deepseek
+      --n-gpu-layers ${LLAMA_N_GPU_LAYERS:-99} --flash-attn auto
+      --parallel 1 --cont-batching
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${LLAMA_GPU_COUNT:-1}
+              capabilities: [gpu]

@@ -46,14 +46,26 @@ class Settings(BaseSettings):
 
     # AI provider
     ai_provider: AIProviderKind = AIProviderKind.LOCAL_FOUNDATION_SEC
-    ai_base_url: str = "http://localhost:8000/v1"
+    # Default points at the in-compose llama.cpp service. For a host-run server use
+    # http://host.docker.internal:8080/v1; for a bare-metal dev run, http://localhost:8080/v1.
+    ai_base_url: str = "http://llama:8080/v1"
     ai_api_key: str = "not-needed-for-local"
     ai_model_name: str = "Foundation-Sec-8B-Reasoning"
     ai_temperature: float = 0.2
-    ai_max_tokens: int = 1400
-    ai_timeout_seconds: int = 60
+    # Foundation-Sec-8B-Reasoning emits a <think> block before the answer; reasoning
+    # and answer share the completion budget, so allow room for both.
+    ai_max_tokens: int = 2048
+    # Local CPU inference of an 8B reasoning model is slow and the first request after
+    # boot also pays model-load latency — keep the client timeout generous.
+    ai_timeout_seconds: int = 180
     ai_rate_limit: str = "20/minute"
     ai_vector_enabled: bool = False
+    # JSON output strategy. "off" lets a reasoning model think freely then emit JSON
+    # (extracted robustly by validate_answer). "json_object"/"json_schema" apply a
+    # grammar from the first token — only suitable for non-reasoning servers.
+    ai_json_mode: str = "off"  # off | json_object | json_schema
+    # Persist the model's reasoning trace (llama.cpp reasoning_content) for audit/UI.
+    ai_capture_reasoning: bool = True
 
     # Reports
     reports_pdf_enabled: bool = False

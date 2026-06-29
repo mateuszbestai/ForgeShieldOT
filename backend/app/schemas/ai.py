@@ -6,7 +6,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from app.ai.schema import Citation
+from app.ai.schema import AttackPathStep, Citation
 from app.core.enums import AIUseCase
 
 
@@ -27,6 +27,8 @@ class AIChatResponse(BaseModel):
     confidence: str
     assumptions: list[str]
     safe_ot_actions: list[str]
+    attack_path: list[AttackPathStep] = []
+    reasoning: str | None = None
     disclaimer: str
     provider_name: str
     model_name: str
@@ -41,6 +43,8 @@ class AIMessageRead(BaseModel):
     confidence: str | None
     assumptions: list[str]
     safe_ot_actions: list[str]
+    attack_path: list[dict] = []
+    reasoning: str | None = None
     use_case: AIUseCase
     created_at: datetime
 

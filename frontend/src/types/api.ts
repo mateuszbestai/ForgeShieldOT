@@ -101,6 +101,15 @@ export interface Citation {
   label: string;
 }
 
+export interface AttackPathStep {
+  stage: string;
+  technique_id: string;
+  technique_name: string;
+  rationale: string;
+  detection_gap: string;
+  mitigation: string;
+}
+
 export interface AIAnswer {
   conversation_id?: string;
   message_id?: string;
@@ -111,6 +120,8 @@ export interface AIAnswer {
   confidence: string;
   assumptions: string[];
   safe_ot_actions: string[];
+  attack_path?: AttackPathStep[];
+  reasoning?: string | null;
   disclaimer: string;
   provider_name?: string;
   model_name?: string;

@@ -6,6 +6,7 @@ import uuid
 from fastapi import APIRouter, Depends, Query
 from sqlmodel import Session
 
+from app.ai.service import run_ai_query
 from app.api.deps import (
     SOC_OPERATIONS,
     WRITE_OPERATIONS,
@@ -14,7 +15,8 @@ from app.api.deps import (
     require_role,
 )
 from app.core.db import get_session
-from app.core.enums import DetectionStatus, DetectionType, Severity
+from app.core.enums import AIUseCase, DetectionStatus, DetectionType, Severity
+from app.schemas.ai import AIChatResponse
 from app.schemas.common import PaginationParams, pagination
 from app.schemas.detection import (
     DetectionCreate,
@@ -100,3 +102,44 @@ def add_evidence(
     session: Session = Depends(get_session),
 ) -> dict:
     return detection_service.add_evidence(session, detection_id, data, user).model_dump()
+
+
+@router.post("/{detection_id}/ai-translate")
+def ai_translate_detection(
+    detection_id: uuid.UUID,
+    user: AuthenticatedUser = Depends(require_role(*SOC_OPERATIONS)),
+    session: Session = Depends(get_session),
+) -> AIChatResponse:
+    """Translate a technical detection into plain language a plant manager can act on."""
+    detection = detection_service.get_detection(session, detection_id)
+    response = run_ai_query(
+        session,
+        user_id=user.id,
+        actor_email=user.email,
+        use_case=AIUseCase.ALERT_TRANSLATE,
+        entity_id=detection.id,
+        question="Translate this alert into plain language for a plant manager.",
+        conversation_id=None,
+    )
+    detection.ai_summary = response.summary
+    session.add(detection)
+    session.commit()
+    return response
+
+
+@router.post("/{detection_id}/ai-next-action")
+def ai_next_action_detection(
+    detection_id: uuid.UUID,
+    user: AuthenticatedUser = Depends(require_role(*SOC_OPERATIONS)),
+    session: Session = Depends(get_session),
+) -> AIChatResponse:
+    detection = detection_service.get_detection(session, detection_id)
+    return run_ai_query(
+        session,
+        user_id=user.id,
+        actor_email=user.email,
+        use_case=AIUseCase.NEXT_ACTION,
+        entity_id=detection.id,
+        question="Recommend the single best defensive next action for this detection.",
+        conversation_id=None,
+    )

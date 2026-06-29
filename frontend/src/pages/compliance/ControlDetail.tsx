@@ -171,12 +171,20 @@ export default function ControlDetail() {
       </Card>
 
       {canManage && (
-        <AiActionCard
-          title="AI gap summary"
-          description="Summarize the gap and the evidence still required for this control."
-          buttonLabel="Generate gap summary"
-          mutationFn={() => complianceApi.aiGap(id)}
-        />
+        <div className="space-y-4">
+          <AiActionCard
+            title="AI gap summary"
+            description="Summarize the gap and the evidence still required for this control."
+            buttonLabel="Generate gap summary"
+            mutationFn={() => complianceApi.aiGap(id)}
+          />
+          <AiActionCard
+            title="Map evidence to requirements"
+            description="Map the linked evidence to this control's requirements and flag what is still missing."
+            buttonLabel="Map evidence"
+            mutationFn={() => complianceApi.aiEvidenceMap(id)}
+          />
+        </div>
       )}
 
       {c.ai_gap_summary && !canManage && (

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ListChecks, Loader2, ShieldCheck, Siren } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { AiActionCard } from "@/components/ai/AiActionCard";
 import { ErrorState } from "@/components/common/ErrorState";
 import { LoadingState } from "@/components/common/LoadingState";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -160,6 +161,23 @@ export default function DetectionDetail() {
               <CardHeader><CardTitle className="text-base">AI summary</CardTitle></CardHeader>
               <CardContent><p className="text-sm leading-relaxed">{d.ai_summary}</p></CardContent>
             </Card>
+          )}
+
+          {isSoc && (
+            <div className="space-y-4">
+              <AiActionCard
+                title="Translate this alert"
+                description="Plain-language explanation a plant manager can act on."
+                buttonLabel="Translate alert"
+                mutationFn={() => detectionsApi.aiTranslate(id)}
+              />
+              <AiActionCard
+                title="Next best defensive action"
+                description="The single safest next step for this detection."
+                buttonLabel="Recommend next action"
+                mutationFn={() => detectionsApi.aiNextAction(id)}
+              />
+            </div>
           )}
         </div>
 

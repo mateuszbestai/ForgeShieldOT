@@ -28,6 +28,10 @@ class AIMessage(UUIDMixin, TimestampMixin, table=True):
     confidence: str | None = None
     assumptions: list[str] = Field(default_factory=list, sa_column=json_column())
     safe_ot_actions: list[str] = Field(default_factory=list, sa_column=json_column())
+    # Defensive attack-path steps (ATTACK_PATH/THREAT_SCENARIO use cases only).
+    attack_path: list[dict] = Field(default_factory=list, sa_column=json_column())
+    # The model's reasoning trace, captured when the server exposes it.
+    reasoning: str | None = None
     provider_name: str | None = None
     model_name: str | None = None
     latency_ms: int | None = None

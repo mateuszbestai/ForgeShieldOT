@@ -133,36 +133,82 @@ only `.env.example` (placeholders) is in the repo.
 | **Database** | `POSTGRES_USER/PASSWORD/DB/HOST/PORT`, or `DATABASE_URL` override |
 | **Redis** | `REDIS_URL` |
 | **Auth (Supabase)** | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_KEY` (seed only), `SUPABASE_JWT_SECRET`, `SUPABASE_JWT_AUD`, `AUTH_DEV_BYPASS` (dev/tests only), `DEMO_USER_PASSWORD` |
-| **AI** | `AI_PROVIDER` (`local_foundation_sec` \| `openai_compatible` \| `mock`), `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL_NAME`, `AI_TEMPERATURE`, `AI_MAX_TOKENS`, `AI_TIMEOUT_SECONDS`, `AI_RATE_LIMIT`, `AI_VECTOR_ENABLED` |
+| **AI** | `AI_PROVIDER` (`local_foundation_sec` \| `openai_compatible` \| `mock`), `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL_NAME`, `AI_TEMPERATURE`, `AI_MAX_TOKENS`, `AI_TIMEOUT_SECONDS`, `AI_JSON_MODE`, `AI_CAPTURE_REASONING`, `AI_RATE_LIMIT`, `AI_VECTOR_ENABLED` |
+| **llama.cpp** | `LLAMA_THREADS`, `LLAMA_MODEL_FILE`, `LLAMA_N_GPU_LAYERS` (GPU override) |
 | **Reports** | `REPORTS_PDF_ENABLED` (PDF optional; Markdown + HTML always available) |
 | **Seeding** | `SEED_ON_START` |
 | **Frontend (browser)** | `VITE_API_BASE_URL`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` |
 
 ### AI model configuration
 
-ForgeShield OT talks to any **OpenAI‑compatible** chat‑completions endpoint. The default provider targets
-Cisco **Foundation‑Sec‑8B‑Reasoning**:
+ForgeShield OT runs **Foundation‑Sec‑8B‑Reasoning** (a cybersecurity‑specialized, reasoning LLM) locally via
+**llama.cpp**, which the default stack ships as the `llama` compose service. Fetch the GGUF once and start the
+GPU stack:
+
+```bash
+make llama-pull        # download the ~4.9GB Q4_K_M GGUF into the llama-models volume (public, no token)
+make up-gpu            # NVIDIA GPU stack: docker compose + docker-compose.gpu.yml
+# or `make up` for the CPU-only fallback (portable, slower)
+```
+
+Key settings (full list + run modes in **`docs/RUNBOOK_LLAMACPP.md`**):
 
 ```bash
 AI_PROVIDER=local_foundation_sec
-AI_BASE_URL=http://your-host:8000/v1     # vLLM / TGI / Ollama OpenAI-compatible server
-AI_API_KEY=...                            # if your server requires one
-AI_MODEL_NAME=Foundation-Sec-8B-Reasoning
+AI_BASE_URL=http://llama:8080/v1          # in-compose; host-run: http://host.docker.internal:8080/v1
+AI_MODEL_NAME=Foundation-Sec-8B-Reasoning # must match the llama-server --alias
+AI_JSON_MODE=off                          # reasoning model: think first, then JSON (recommended)
+AI_CAPTURE_REASONING=true                 # persist + surface the model's reasoning trace
 ```
 
-Serve the model however you like, e.g.:
+Because it talks plain **OpenAI‑compatible** HTTP, any other server (vLLM / TGI / Ollama) also works — point
+`AI_BASE_URL` at its `/v1`. If no endpoint is available, set `AI_PROVIDER=mock` for a deterministic, grounded,
+offline analyst. **Every provider** is forced through the same safety contract: retrieval‑grounded answers,
+citations restricted to an allow‑list of internal record IDs, a confidence level (High/Medium/Low), an
+assumptions section, a **"safe OT actions only"** section, and a non‑removable disclaimer. See
+`docs/AI_DESIGN.md`.
 
-```bash
-# vLLM
-vllm serve fdtn-ai/Foundation-Sec-8B-Reasoning --port 8000
-# Ollama (after pulling/creating the model) — exposes http://localhost:11434/v1
-```
 
-If no endpoint is available, set `AI_PROVIDER=mock` for a deterministic, grounded, offline analyst. **Every
-provider** is forced through the same safety contract: retrieval‑grounded answers, citations restricted to an
-allow‑list of internal record IDs, a confidence level (High/Medium/Low), an assumptions section, a
-**"safe OT actions only"** section, and a non‑removable disclaimer. See `docs/AI_DESIGN.md`.
+How to check your pulled models (your question)
 
+  The GGUFs live in the llama-models Docker volume, not on disk — so:
+
+  # list files + sizes in the volume
+  docker run --rm -v forgeshield-ot_llama-models:/models alpine ls -lh /models
+
+  # what the running server is serving (only works while llama is up)
+  curl -s localhost:8080/v1/models
+
+  When I ran that, your volume contains one file: foundation-sec-8b-reasoning-q4_k_m.gguf at 3.0 GB.
+
+  Problem 1 — that model is incomplete
+
+  Hugging Face reports the true size as 4.92 GB; yours is 3.0 GB, so the download was cut off (and the old make llama-pull restarted from zero each
+  time). This truncated file is almost certainly why you saw garbled output earlier. I just made make llama-pull resumable, so:
+                                                                                                                                                       make llama-pull      # resumes from 3.0 GB → finishes at ~4.9 GB; it prints the size at the end
+  Re-run it until the printed size is ~4.9 GB. Do this before starting llama — otherwise the server tries to load a truncated model and crashes.
+
+  Problem 2 — make up-gpu failed on a Docker credential error
+                                                                                                                                                       This line is the real failure (the getcwd line is just a harmless WSL warning):
+  error getting credentials - err: exit status 1
+  load metadata for docker.io/library/python:3.12-slim ... ERROR
+  make up-gpu runs docker compose ... up --build, and the --build step needs to look up the python/node base images on Docker Hub — which invokes
+  your Docker credential helper, and that helper is failing (a common Docker Desktop ↔ WSL integration hiccup).
+                                                                                                                                                       You don't need to rebuild — the backend/frontend images are already built. Start the stack without --build, which skips the credential lookup        entirely:                                                                                                                                          
+  docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+
+  If you do want make up-gpu/--build working again, fix the credential helper one of these ways:
+  - Make sure Docker Desktop is running with WSL integration enabled for this distro (Settings → Resources → WSL integration), then retry; or
+  - docker logout, then retry; or
+  - Edit ~/.docker/config.json and remove the "credsStore": "desktop" line (base images are public, so no creds are needed).
+
+  Do this, in order
+
+  cd "/mnt/c/Users/mstef/code repo/ForgeShieldOT"
+  make llama-pull                                                     # 1. finish the model (re-run until ~4.9 GB)
+  docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d # 2. start everything (no rebuild)                                              curl -s localhost:8080/health                                       # 3. {"status":"ok"} = model loaded                                                                                                                                                                                                   Then open http://localhost:5173 and try the AI tab. And keep the GPU power fix from before in mind (AC power + performance mode) so it runs fast
+  rather than at the 15 W / 180 MHz throttle.
+  
 ### Authentication (Supabase Cloud)
 
 > **No Supabase tables or SQL are required.** Supabase is used **only for authentication** (GoTrue) — it
@@ -263,11 +309,18 @@ top contributors and a single safe recommended next action**. Full table & worke
 
 - **RAG over your own records** — deterministic, structured retrieval assembles a typed evidence bundle per use
   case (asset risk, daily brief, vuln impact, remediation plan, compliance gap, config‑change explanation,
-  incident/executive summary, free‑form chat).
+  incident/executive summary, alert translation, next‑best action, evidence mapping, free‑form chat).
+- **Defensive attack‑path simulation** — for a target asset, the security model walks the relationship graph
+  (internet paths, EW→PLC, remote access, unknown conduits), KEV/high‑CVSS vulnerabilities and open detections to
+  produce a **blue‑team** ATT&CK‑for‑ICS attack path: entry → lateral movement → impact, each step mapped to a
+  technique with its detection‑coverage gap and a safe, passive mitigation. No exploit code, payloads or active
+  steps — strictly planning. Surfaced on the asset's *Ask AI* tab.
+- **Reasoning trace** — the model's `<think>` reasoning (via llama.cpp `reasoning_content`) is captured, audited
+  and shown as an expandable "analyst reasoning" panel.
 - **Citations are allow‑listed** — the model may only cite internal record IDs present in the retrieved evidence;
   any fabricated citation is dropped server‑side.
 - **Structured, safe output** — summary, findings, citations, confidence, assumptions, **safe OT actions only**,
-  and a forced disclaimer.
+  an optional defensive `attack_path`, and a forced disclaimer.
 - **Prompt‑injection resistant** — untrusted data is delimited and sanitized, declared as *data, never
   instructions*; combined with citation allow‑listing and JSON validation.
 - **Fully audited** — every prompt and response is written to the audit log.

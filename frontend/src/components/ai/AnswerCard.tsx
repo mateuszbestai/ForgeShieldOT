@@ -1,8 +1,9 @@
-import { Quote, ShieldCheck, Sparkles } from "lucide-react";
+import { Brain, Quote, ShieldCheck, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { AIAnswer } from "@/types/api";
+import { AttackPathCard } from "./AttackPathCard";
 
 const CONFIDENCE_STYLES: Record<string, string> = {
   HIGH: "bg-risk-low/15 text-risk-low border-risk-low/30",
@@ -55,6 +56,10 @@ export function AnswerCard({ answer, className }: { answer: AIAnswer; className?
           </div>
         )}
 
+        {answer.attack_path && answer.attack_path.length > 0 && (
+          <AttackPathCard steps={answer.attack_path} />
+        )}
+
         {answer.citations?.length > 0 && (
           <div className="space-y-1.5">
             <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -102,6 +107,17 @@ export function AnswerCard({ answer, className }: { answer: AIAnswer; className?
               ))}
             </ul>
           </div>
+        )}
+
+        {answer.reasoning && (
+          <details className="rounded-md border border-border bg-muted/30 p-3 text-sm">
+            <summary className="flex cursor-pointer items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <Brain className="h-3.5 w-3.5" /> Analyst reasoning
+            </summary>
+            <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
+              {answer.reasoning}
+            </p>
+          </details>
         )}
 
         {(answer.disclaimer || answer.provider_name) && (

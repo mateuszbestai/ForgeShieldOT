@@ -42,32 +42,47 @@ hint to check `AI_BASE_URL` / `AI_API_KEY` / `AI_MODEL_NAME`. `health()` probes
 `{AI_BASE_URL}/models`.
 
 `LocalFoundationSecProvider` **subclasses** the OpenAI-compatible provider and adds
-reasoning-model handling: it requests `response_format={"type":"json_object"}` by
-default and strips `<think>…</think>` reasoning blocks from the output before parsing.
+reasoning-model handling. Foundation-Sec-8B-Reasoning is a *reasoning* model: it emits a
+`<think>…</think>` block and then the answer.
 
-### Plugging in the real Foundation-Sec model (vLLM / Ollama / TGI)
+**Reasoning vs. JSON grammar.** Forcing `response_format={"type":"json_object"}` makes
+llama.cpp constrain output to JSON from the very first token, which suppresses the
+`<think>` block and degrades the model's reasoning. So the JSON strategy is configurable
+via `AI_JSON_MODE`:
 
-The model is consumed entirely through the OpenAI-compatible chat-completions API, so
-any server that exposes that API works. Set these (in `.env` / compose):
+| `AI_JSON_MODE` | Behavior |
+|----------------|----------|
+| `off` (default) | No grammar. The model reasons freely then emits JSON, which `validate_answer` extracts robustly. **Best for this reasoning model.** |
+| `json_object` | Requests `{"type":"json_object"}` — grammar from token 0; only for non-reasoning servers. |
+| `json_schema` | Requests an `AIAnswer`-shaped schema-constrained object. |
+
+The provider still strips any inline `<think>` block as a fallback. The reasoning trace
+is captured from the server's `reasoning_content` field (llama.cpp `--reasoning-format`)
+or recovered from the inline `<think>` block, and — when `AI_CAPTURE_REASONING=true` — is
+persisted on the assistant `AIMessage.reasoning` and surfaced as an expandable panel in
+the UI.
+
+### Serving the real model with llama.cpp
+
+The model is consumed entirely through the OpenAI-compatible chat-completions API. The
+default stack runs **llama.cpp** (`llama-server`) as the `llama` compose service. See
+**[RUNBOOK_LLAMACPP.md](./RUNBOOK_LLAMACPP.md)** for the GPU/CPU/host run modes and the
+exact launch flags. Core settings (`.env` / compose):
 
 ```bash
 AI_PROVIDER=local_foundation_sec
-AI_BASE_URL=http://<host>:<port>/v1      # must include the OpenAI /v1 prefix
-AI_API_KEY=not-needed-for-local          # or a real key for hosted endpoints
-AI_MODEL_NAME=Foundation-Sec-8B-Reasoning
+AI_BASE_URL=http://llama:8080/v1         # in-compose; host-run: http://host.docker.internal:8080/v1
+AI_API_KEY=not-needed-for-local
+AI_MODEL_NAME=Foundation-Sec-8B-Reasoning  # must match llama-server --alias
 AI_TEMPERATURE=0.2
-AI_MAX_TOKENS=1400
-AI_TIMEOUT_SECONDS=60
+AI_MAX_TOKENS=2048                       # reasoning + answer share the budget
+AI_TIMEOUT_SECONDS=180                   # local inference is slow; first call pays load time
+AI_JSON_MODE=off
+AI_CAPTURE_REASONING=true
 ```
 
-Examples of compatible servers:
-
-- **vLLM** — `vllm serve <model> --port 8000` exposes `/v1/chat/completions`; point
-  `AI_BASE_URL=http://host:8000/v1`.
-- **Ollama** — exposes an OpenAI-compatible API at `/v1`; set
-  `AI_BASE_URL=http://host:11434/v1` and `AI_MODEL_NAME` to the pulled model tag.
-- **TGI (Text Generation Inference)** — exposes `/v1/chat/completions`; point
-  `AI_BASE_URL` at `http://host:8080/v1`.
+Any other OpenAI-compatible server (vLLM / Ollama / TGI) also works — point `AI_BASE_URL`
+at its `/v1` endpoint and set `AI_MODEL_NAME` to the served model id.
 
 `GET /api/ai/health` reports the active provider, model, reachability, and a remediation
 note (suggesting `AI_PROVIDER=mock` if the endpoint is unreachable).
@@ -92,9 +107,9 @@ pgvector retrieval is gated behind `AI_VECTOR_ENABLED`, off by default).
 
 Each record becomes an `EvidenceRecord(ref, label, fields)` with a stable citation ref
 (`asset:<id>`, `vuln:<cve>`, `detection:<id>`, `control:<ref>`, `incident:<ref>`,
-`config_change:<id>`, `evidence:<id>`). All free-form / untrusted text fields (notes,
-descriptions, diffs, remediation text, timelines) are passed through the **sanitizer**
-before entering the bundle. Bundles are capped at 30 records.
+`config_change:<id>`, `evidence:<id>`, `relationship:<id>`). All free-form / untrusted
+text fields (notes, descriptions, diffs, remediation text, timelines) are passed through
+the **sanitizer** before entering the bundle. Bundles are capped at 30 records.
 
 Per-use-case context assembly:
 
@@ -106,6 +121,10 @@ Per-use-case context assembly:
 | `COMPLIANCE_GAP` | the control (with framework) + up to 10 evidence records. |
 | `CONFIG_CHANGE` | the change + its asset. |
 | `INCIDENT_SUMMARY` / `EXEC_SUMMARY` | the incident + up to 15 timeline events. |
+| `ALERT_TRANSLATE` / `NEXT_ACTION` (detection) | the detection + its evidence + the affected asset. |
+| `NEXT_ACTION` (incident/asset) | reuses the incident or asset-risk bundle, stamped `NEXT_ACTION`. |
+| `EVIDENCE_MAP` | the control (with framework) + up to 10 evidence records. |
+| `ATTACK_PATH` / `THREAT_SCENARIO` | the target asset + its `AssetRelationship` neighbors (internet/EW→PLC/remote-access/unknown paths) + KEV/high-CVSS vulns + open detections (with ATT&CK-for-ICS techniques) + historically linked incidents. |
 | `CHAT` (default) | keyword-matched assets/vulns/detections/incidents; falls back to top-5 highest-risk assets if nothing matches. |
 
 `RetrievalContext.allowed_citations` is the **set of refs in the bundle** — the
@@ -127,8 +146,16 @@ class AIAnswer(BaseModel):
     confidence: Literal["High", "Medium", "Low"] = "Low"
     assumptions: list[str] = []
     safe_ot_actions: list[str] = []
+    attack_path: list[AttackPathStep] = []         # ATTACK_PATH/THREAT_SCENARIO only; defaults empty
     disclaimer: str = DEFAULT_DISCLAIMER
 ```
+
+`AttackPathStep = { stage, technique_id, technique_name, rationale, detection_gap,
+mitigation }` — a single conceptual stage of a **defensive** ATT&CK-for-ICS attack path.
+It is optional and backward-compatible: only the attack-path/threat-scenario use cases
+populate it, every other answer leaves it empty. The defensive framing (no exploit code,
+commands, payloads or active steps) is enforced by the system prompt and the use-case
+instruction, not just by convention.
 
 `validate_answer(raw, allowed_citations)` is the **server-side grounding guarantee**:
 

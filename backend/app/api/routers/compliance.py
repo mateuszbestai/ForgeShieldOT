@@ -106,6 +106,25 @@ def ai_control_gap(
     return response
 
 
+@router.post("/controls/{control_id}/ai-evidence-map")
+def ai_control_evidence_map(
+    control_id: uuid.UUID,
+    user: AuthenticatedUser = Depends(require_role(*COMPLIANCE_OPERATIONS)),
+    session: Session = Depends(get_session),
+) -> AIChatResponse:
+    """Map the control's available evidence to its requirements and flag remaining gaps."""
+    control = compliance_service.get_control(session, control_id)
+    return run_ai_query(
+        session,
+        user_id=user.id,
+        actor_email=user.email,
+        use_case=AIUseCase.EVIDENCE_MAP,
+        entity_id=control.id,
+        question="Map the available evidence to this control's requirements and flag any gaps.",
+        conversation_id=None,
+    )
+
+
 @router.post("/evidence", status_code=201)
 def add_evidence(
     data: EvidenceCreate,

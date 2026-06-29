@@ -14,6 +14,13 @@ import type {
 
 const unwrap = async <T>(p: Promise<{ data: T }>): Promise<T> => (await p).data;
 
+// Local LLM inference — especially a *reasoning* model — routinely runs longer
+// than the shared 90s client timeout. AI calls get a higher ceiling (above the
+// backend's AI_TIMEOUT_SECONDS) so a slow-but-working answer surfaces as a real
+// result, or as the backend's explicit 503 — never as the misleading
+// "Cannot reach the API" axios-abort message.
+const aiCfg = { timeout: 240_000 } as const;
+
 export const authApi = {
   me: () => unwrap(api.get("/auth/me")),
   config: () => unwrap(api.get("/auth/config")),
@@ -37,6 +44,8 @@ export const assetsApi = {
     fd.append("file", file);
     return unwrap(api.post("/assets/import", fd, { headers: { "Content-Type": "multipart/form-data" } }));
   },
+  aiAttackPath: (id: string) => unwrap<AIAnswer>(api.post(`/assets/${id}/ai-attack-path`, undefined, aiCfg)),
+  aiNextAction: (id: string) => unwrap<AIAnswer>(api.post(`/assets/${id}/ai-next-action`, undefined, aiCfg)),
 };
 
 export const riskApi = {
@@ -50,6 +59,8 @@ export const detectionsApi = {
   stats: () => unwrap<Record<string, unknown>>(api.get("/detections/stats")),
   get: (id: string) => unwrap<any>(api.get(`/detections/${id}`)),
   update: (id: string, body: Record<string, unknown>) => unwrap(api.patch(`/detections/${id}`, body)),
+  aiTranslate: (id: string) => unwrap<AIAnswer>(api.post(`/detections/${id}/ai-translate`, undefined, aiCfg)),
+  aiNextAction: (id: string) => unwrap<AIAnswer>(api.post(`/detections/${id}/ai-next-action`, undefined, aiCfg)),
 };
 
 export const vulnsApi = {
@@ -60,9 +71,9 @@ export const vulnsApi = {
   match: (id: string) => unwrap(api.post(`/vulnerabilities/${id}/match`)),
   setStatus: (linkId: string, body: Record<string, unknown>) =>
     unwrap(api.post(`/vulnerabilities/asset-links/${linkId}/status`, body)),
-  remediationPlan: (id: string) => unwrap(api.post(`/vulnerabilities/${id}/remediation-plan`)),
-  aiExplain: (id: string) => unwrap<AIAnswer>(api.post(`/vulnerabilities/${id}/ai-explain`)),
-  aiRemediation: (id: string) => unwrap<AIAnswer>(api.post(`/vulnerabilities/${id}/ai-remediation`)),
+  remediationPlan: (id: string) => unwrap(api.post(`/vulnerabilities/${id}/remediation-plan`, undefined, aiCfg)),
+  aiExplain: (id: string) => unwrap<AIAnswer>(api.post(`/vulnerabilities/${id}/ai-explain`, undefined, aiCfg)),
+  aiRemediation: (id: string) => unwrap<AIAnswer>(api.post(`/vulnerabilities/${id}/ai-remediation`, undefined, aiCfg)),
 };
 
 export const configApi = {
@@ -73,7 +84,7 @@ export const configApi = {
     unwrap(api.post(`/config/changes/${id}/disposition`, body)),
   compare: (body: Record<string, unknown>) => unwrap(api.post("/config/compare", body)),
   setBaseline: (id: string) => unwrap(api.post(`/config/snapshots/${id}/baseline`)),
-  aiExplain: (id: string) => unwrap<AIAnswer>(api.post(`/config/changes/${id}/ai-explain`)),
+  aiExplain: (id: string) => unwrap<AIAnswer>(api.post(`/config/changes/${id}/ai-explain`, undefined, aiCfg)),
 };
 
 export const complianceApi = {
@@ -85,7 +96,8 @@ export const complianceApi = {
   addEvidence: (body: Record<string, unknown>) => unwrap(api.post("/compliance/evidence", body)),
   autoLink: () => unwrap(api.post("/compliance/auto-link")),
   gapReport: (frameworkId?: string) => unwrap(api.get("/compliance/gap-report", { params: { framework_id: frameworkId } })),
-  aiGap: (id: string) => unwrap<AIAnswer>(api.post(`/compliance/controls/${id}/ai-gap`)),
+  aiGap: (id: string) => unwrap<AIAnswer>(api.post(`/compliance/controls/${id}/ai-gap`, undefined, aiCfg)),
+  aiEvidenceMap: (id: string) => unwrap<AIAnswer>(api.post(`/compliance/controls/${id}/ai-evidence-map`, undefined, aiCfg)),
 };
 
 export const incidentsApi = {
@@ -96,8 +108,9 @@ export const incidentsApi = {
   fromDetection: (detectionId: string) => unwrap(api.post("/incidents/from-detection", { detection_id: detectionId })),
   update: (id: string, body: Record<string, unknown>) => unwrap(api.patch(`/incidents/${id}`, body)),
   addTimeline: (id: string, body: Record<string, unknown>) => unwrap(api.post(`/incidents/${id}/timeline`, body)),
-  aiSummary: (id: string) => unwrap<AIAnswer>(api.post(`/incidents/${id}/ai-summary`)),
-  aiExec: (id: string) => unwrap<AIAnswer>(api.post(`/incidents/${id}/ai-exec-summary`)),
+  aiSummary: (id: string) => unwrap<AIAnswer>(api.post(`/incidents/${id}/ai-summary`, undefined, aiCfg)),
+  aiExec: (id: string) => unwrap<AIAnswer>(api.post(`/incidents/${id}/ai-exec-summary`, undefined, aiCfg)),
+  aiNextAction: (id: string) => unwrap<AIAnswer>(api.post(`/incidents/${id}/ai-next-action`, undefined, aiCfg)),
   checklist: () => unwrap<{ safe_ot_response_checklist: string[] }>(api.get("/incidents/checklist")),
 };
 
@@ -118,7 +131,7 @@ export const integrationsApi = {
 
 export const aiApi = {
   chat: (body: { question: string; use_case?: string; entity_id?: string; conversation_id?: string }) =>
-    unwrap<AIAnswer>(api.post("/ai/chat", body)),
+    unwrap<AIAnswer>(api.post("/ai/chat", body, aiCfg)),
   health: () => unwrap<Record<string, unknown>>(api.get("/ai/health")),
   conversations: () => unwrap(api.get("/ai/conversations")),
   messages: (conversationId: string) => unwrap(api.get(`/ai/conversations/${conversationId}/messages`)),

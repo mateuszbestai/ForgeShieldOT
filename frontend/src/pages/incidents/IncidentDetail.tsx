@@ -96,6 +96,11 @@ export default function IncidentDetail() {
     onSuccess: (a) => { setAiAnswer(a); setAiError(null); },
     onError: (err) => setAiError(aiMsg(err as ApiError)),
   });
+  const aiNextActionMut = useMutation({
+    mutationFn: () => incidentsApi.aiNextAction(id),
+    onSuccess: (a) => { setAiAnswer(a); setAiError(null); },
+    onError: (err) => setAiError(aiMsg(err as ApiError)),
+  });
 
   if (isLoading) return <LoadingState label="Loading incident…" />;
   if (isError || !data)
@@ -257,6 +262,10 @@ export default function IncidentDetail() {
                 <Button variant="outline" className="w-full justify-start" onClick={() => aiExecMut.mutate()} disabled={aiExecMut.isPending}>
                   {aiExecMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                   AI executive summary
+                </Button>
+                <Button variant="outline" className="w-full justify-start" onClick={() => aiNextActionMut.mutate()} disabled={aiNextActionMut.isPending}>
+                  {aiNextActionMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                  AI next action
                 </Button>
               </CardContent>
             </Card>

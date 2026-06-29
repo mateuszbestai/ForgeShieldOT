@@ -31,6 +31,21 @@ class Citation(BaseModel):
     label: str = ""
 
 
+class AttackPathStep(BaseModel):
+    """One conceptual stage of a DEFENSIVE attack-path analysis (ATT&CK for ICS).
+
+    Populated only for the ATTACK_PATH / THREAT_SCENARIO use cases; always
+    blue-team framing (no exploit code, commands or active steps).
+    """
+
+    stage: str = ""  # e.g. "Initial Access", "Lateral Movement", "Impact"
+    technique_id: str = ""  # ATT&CK for ICS id, e.g. "T0883"
+    technique_name: str = ""
+    rationale: str = ""  # which internal record makes this plausible
+    detection_gap: str = ""  # where current monitoring would miss this
+    mitigation: str = ""  # prioritized passive/safe mitigation
+
+
 class AIAnswer(BaseModel):
     summary: str
     findings: list[str] = []
@@ -38,6 +53,7 @@ class AIAnswer(BaseModel):
     confidence: Literal["High", "Medium", "Low"] = "Low"
     assumptions: list[str] = []
     safe_ot_actions: list[str] = []
+    attack_path: list[AttackPathStep] = []  # only set for ATTACK_PATH/THREAT_SCENARIO
     disclaimer: str = DEFAULT_DISCLAIMER
 
 
@@ -98,6 +114,21 @@ def _extract_json_object(text: str) -> dict[str, Any] | None:
     return None
 
 
+def _salvage_attack_path(raw: Any) -> list[AttackPathStep]:
+    """Best-effort coercion of an attack_path list when full validation failed."""
+    steps: list[AttackPathStep] = []
+    if not isinstance(raw, list):
+        return steps
+    for item in raw[:12]:
+        if not isinstance(item, dict):
+            continue
+        try:
+            steps.append(AttackPathStep.model_validate(item))
+        except ValidationError:
+            continue
+    return steps
+
+
 def validate_answer(raw: str, allowed_citations: set[str]) -> AIAnswer:
     """Parse a provider's raw output into a safe, grounded ``AIAnswer``.
 
@@ -115,6 +146,7 @@ def validate_answer(raw: str, allowed_citations: set[str]) -> AIAnswer:
             answer = AIAnswer(
                 summary=str(data.get("summary") or raw)[:4000],
                 findings=[str(x) for x in (data.get("findings") or [])][:20],
+                attack_path=_salvage_attack_path(data.get("attack_path")),
                 confidence="Low",
             )
     # Citation allow-listing — the core anti-hallucination guarantee.

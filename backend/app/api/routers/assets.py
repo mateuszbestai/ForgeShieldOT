@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Query, Response, UploadFile
 from fastapi.responses import PlainTextResponse
 from sqlmodel import Session
 
+from app.ai.service import run_ai_query
 from app.api.deps import (
     WRITE_OPERATIONS,
     AuthenticatedUser,
@@ -15,8 +16,9 @@ from app.api.deps import (
 )
 from app.core.config import settings
 from app.core.db import get_session
-from app.core.enums import AssetType, AuditAction, Criticality
+from app.core.enums import AIUseCase, AssetType, AuditAction, Criticality
 from app.core.exceptions import ValidationAppError
+from app.schemas.ai import AIChatResponse
 from app.schemas.asset import AssetCreate, AssetFilter, AssetUpdate
 from app.schemas.common import PaginationParams, pagination
 from app.services import asset_service, csv_io
@@ -140,3 +142,43 @@ def delete_asset(
 ) -> Response:
     asset_service.delete_asset(session, asset_id, user)
     return Response(status_code=204)
+
+
+@router.post("/{asset_id}/ai-attack-path")
+def ai_attack_path(
+    asset_id: uuid.UUID,
+    user: AuthenticatedUser = Depends(require_role(*WRITE_OPERATIONS)),
+    session: Session = Depends(get_session),
+) -> AIChatResponse:
+    """Defensive ATT&CK-for-ICS attack-path analysis grounded in this asset's blast radius."""
+    asset = asset_service.get_asset(session, asset_id)
+    return run_ai_query(
+        session,
+        user_id=user.id,
+        actor_email=user.email,
+        use_case=AIUseCase.ATTACK_PATH,
+        entity_id=asset.id,
+        question=(
+            f"Model plausible defensive attack paths toward {asset.asset_tag} and "
+            "prioritize safe, passive mitigations for each step."
+        ),
+        conversation_id=None,
+    )
+
+
+@router.post("/{asset_id}/ai-next-action")
+def ai_next_action(
+    asset_id: uuid.UUID,
+    user: AuthenticatedUser = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> AIChatResponse:
+    asset = asset_service.get_asset(session, asset_id)
+    return run_ai_query(
+        session,
+        user_id=user.id,
+        actor_email=user.email,
+        use_case=AIUseCase.NEXT_ACTION,
+        entity_id=asset.id,
+        question=f"What is the single safest next defensive action for {asset.asset_tag}?",
+        conversation_id=None,
+    )

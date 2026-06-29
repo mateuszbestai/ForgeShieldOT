@@ -93,6 +93,7 @@ def run_ai_query(
     latency_ms = int((time.perf_counter() - t0) * 1000)
 
     answer = validate_answer(raw, context.allowed_citations)
+    reasoning = getattr(provider, "last_reasoning", None) if settings.ai_capture_reasoning else None
 
     assistant_msg = AIMessage(
         conversation_id=conv.id,
@@ -102,6 +103,8 @@ def run_ai_query(
         confidence=answer.confidence,
         assumptions=answer.assumptions,
         safe_ot_actions=answer.safe_ot_actions,
+        attack_path=[s.model_dump() for s in answer.attack_path],
+        reasoning=reasoning,
         provider_name=provider.name(),
         model_name=provider.model_name,
         latency_ms=latency_ms,
@@ -119,7 +122,13 @@ def run_ai_query(
         entity_type="ai_message",
         entity_id=assistant_msg.id,
         summary=f"AI response ({answer.confidence} confidence, {len(answer.citations)} citations)",
-        meta={"provider": provider.name(), "model": provider.model_name, "latency_ms": latency_ms},
+        meta={
+            "provider": provider.name(),
+            "model": provider.model_name,
+            "latency_ms": latency_ms,
+            "has_reasoning": bool(reasoning),
+            "attack_path_steps": len(answer.attack_path),
+        },
     )
 
     assert conv.id is not None and assistant_msg.id is not None
@@ -133,6 +142,8 @@ def run_ai_query(
         confidence=answer.confidence,
         assumptions=answer.assumptions,
         safe_ot_actions=answer.safe_ot_actions,
+        attack_path=answer.attack_path,
+        reasoning=reasoning,
         disclaimer=answer.disclaimer,
         provider_name=provider.name(),
         model_name=provider.model_name,

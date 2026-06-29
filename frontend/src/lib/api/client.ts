@@ -33,7 +33,12 @@ function normalizeError(error: AxiosError): ApiError {
     error.message ??
     "Request failed";
   if (status === 429) message = "Rate limit reached. Please slow down.";
-  if (status === 0) message = "Cannot reach the API. Is the backend running?";
+  if (status === 0) {
+    const timedOut = error.code === "ECONNABORTED" || /timeout/i.test(error.message ?? "");
+    message = timedOut
+      ? "The request timed out waiting for a response. A local AI answer may still be generating — if this is the AI tab, the model is likely too slow (see docs/RUNBOOK_LLAMACPP.md) or set AI_PROVIDER=mock."
+      : "Cannot reach the API. Is the backend running?";
+  }
   return { status, code, message };
 }
 

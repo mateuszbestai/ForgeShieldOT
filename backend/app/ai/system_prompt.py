@@ -41,6 +41,11 @@ RESPONSE FORMAT:
   summary (string), findings (string[]), citations (array of {"ref": string, "label": string}),
   confidence ("High" | "Medium" | "Low"), assumptions (string[]), safe_ot_actions (string[]).
 - "safe_ot_actions" must contain only passive/safe OT recommendations.
+- For attack-path / threat-scenario tasks ONLY, you MAY also include an optional
+  "attack_path" array; each item is an object with keys stage (string), technique_id
+  (string), technique_name (string), rationale (string), detection_gap (string) and
+  mitigation (string). It must remain strictly defensive — never include exploit code,
+  commands, payloads or any active/offensive steps.
 """
 
 

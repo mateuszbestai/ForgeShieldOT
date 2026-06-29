@@ -23,12 +23,16 @@ x-backend-env: &backend-env
   AUTH_DEV_BYPASS: ${AUTH_DEV_BYPASS:-false}
   DEMO_USER_PASSWORD: ${DEMO_USER_PASSWORD:-Demo!ForgeShield123}
   AI_PROVIDER: ${AI_PROVIDER:-local_foundation_sec}
-  AI_BASE_URL: ${AI_BASE_URL:-http://localhost:8000/v1}
+  # Points at the in-compose llama.cpp service. Host-run server: http://host.docker.internal:8080/v1
+  AI_BASE_URL: ${AI_BASE_URL:-http://llama:8080/v1}
   AI_API_KEY: ${AI_API_KEY:-not-needed-for-local}
   AI_MODEL_NAME: ${AI_MODEL_NAME:-Foundation-Sec-8B-Reasoning}
   AI_TEMPERATURE: ${AI_TEMPERATURE:-0.2}
-  AI_MAX_TOKENS: ${AI_MAX_TOKENS:-1400}
-  AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-60}
+  AI_MAX_TOKENS: ${AI_MAX_TOKENS:-2048}
+  AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-180}
+  # JSON strategy: off (reasoning model, default) | json_object | json_schema
+  AI_JSON_MODE: ${AI_JSON_MODE:-off}
+  AI_CAPTURE_REASONING: ${AI_CAPTURE_REASONING:-true}
   AI_RATE_LIMIT: ${AI_RATE_LIMIT:-20/minute}
   AI_VECTOR_ENABLED: ${AI_VECTOR_ENABLED:-false}
   REPORTS_PDF_ENABLED: ${REPORTS_PDF_ENABLED:-false}
@@ -62,6 +66,30 @@ services:
       timeout: 3s
       retries: 10
 
+  # Local LLM inference — llama.cpp serving Foundation-Sec-8B-Reasoning (GGUF) over an
+  # OpenAI-compatible API at /v1. CPU by default; layer docker-compose.gpu.yml for NVIDIA.
+  # The ~4.9GB GGUF lives in the `llama-models` named volume — run `make llama-pull` first.
+  llama:
+    image: ${LLAMA_IMAGE:-ghcr.io/ggml-org/llama.cpp:server}
+    volumes:
+      - llama-models:/models
+    ports:
+      - "8080:8080"
+    command: >
+      --model /models/${LLAMA_MODEL_FILE:-foundation-sec-8b-reasoning-q4_k_m.gguf}
+      --alias ${AI_MODEL_NAME:-Foundation-Sec-8B-Reasoning}
+      --host 0.0.0.0 --port 8080
+      --ctx-size ${LLAMA_CTX_SIZE:-8192} --n-predict ${LLAMA_N_PREDICT:-2048}
+      --jinja --reasoning-format deepseek
+      --threads ${LLAMA_THREADS:-8} --parallel 1 --cont-batching
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 180s
+    restart: unless-stopped
+
   backend:
     build:
       context: ./backend
@@ -76,6 +104,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      # Start llama alongside; the backend degrades to a clean 503 if AI is unready,
+      # so we don't block on the (slow) model load.
+      llama:
+        condition: service_started
     command: ["bash", "/app/infra-entrypoint.sh"]
 
   worker:
@@ -122,3 +154,4 @@ services:
 
 volumes:
   pgdata:
+  llama-models:

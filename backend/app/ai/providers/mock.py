@@ -65,12 +65,60 @@ _USE_CASE_ACTIONS = {
         "Follow the safe OT response checklist; do not alter PLC logic.",
         "Preserve forensic evidence and keep the incident timeline current.",
     ],
+    "ALERT_TRANSLATE": [
+        "Notify the responsible plant engineer with the plain-language summary.",
+        "Confirm whether the activity was part of an approved maintenance window.",
+    ],
+    "NEXT_ACTION": [
+        "Take the single highest-priority passive action first, then re-assess.",
+        "Validate the recommended action with a qualified OT engineer before acting.",
+    ],
+    "EVIDENCE_MAP": [
+        "Attach the mapped evidence to the corresponding control record.",
+        "Flag any control requirement that still lacks supporting evidence.",
+    ],
+    "ATTACK_PATH": [
+        "Verify segmentation on every conduit the path traverses; remove any IT/internet reachability.",
+        "Prioritize detection coverage for the techniques highlighted along the path.",
+        "Confirm current, tested backups exist for the targeted safety/critical assets.",
+    ],
+    "THREAT_SCENARIO": [
+        "Run a tabletop over the modeled scenario with OT and SOC stakeholders.",
+        "Close the detection-coverage gaps identified for the in-scope assets.",
+    ],
 }
 
 _DEFAULT_ACTIONS = [
     "Maintain passive monitoring of the affected assets.",
     "Validate findings with a qualified OT engineer before any change.",
 ]
+
+_ATTACK_STAGES = ["Initial Access", "Lateral Movement", "Impact"]
+
+
+def _build_attack_path(records: list[dict]) -> list[dict]:
+    """Derive a deterministic, grounded DEFENSIVE attack path from the evidence.
+
+    Each step cites the technique already present on a record (detections/incidents
+    carry ``attck_ics_technique``) and frames everything as blue-team mitigation —
+    never offensive content.
+    """
+    steps: list[dict] = []
+    for idx, rec in enumerate(records[:3]):
+        fields = rec.get("fields", {}) or {}
+        technique = fields.get("attck_ics_technique") or ""
+        label = rec.get("label", rec.get("ref", "record"))
+        steps.append(
+            {
+                "stage": _ATTACK_STAGES[idx % len(_ATTACK_STAGES)],
+                "technique_id": str(technique) if technique else "",
+                "technique_name": "",
+                "rationale": f"Plausible based on internal record {label}.",
+                "detection_gap": "Confirm monitoring covers this conduit/technique.",
+                "mitigation": "Apply passive segmentation and monitoring; no active or offensive steps.",
+            }
+        )
+    return steps
 
 
 class MockProvider(AIProvider):
@@ -138,6 +186,8 @@ class MockProvider(AIProvider):
             "assumptions": assumptions,
             "safe_ot_actions": actions,
         }
+        if use_case in {"ATTACK_PATH", "THREAT_SCENARIO"} and records:
+            answer["attack_path"] = _build_attack_path(records)
         return json.dumps(answer)
 
     def health(self) -> bool:

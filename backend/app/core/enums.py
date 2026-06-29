@@ -448,6 +448,10 @@ class AIUseCase(StrEnum):
     ALERT_TRANSLATE = "ALERT_TRANSLATE"
     NEXT_ACTION = "NEXT_ACTION"
     EVIDENCE_MAP = "EVIDENCE_MAP"
+    # Defensive (blue-team) attack-path / threat-scenario modeling over the
+    # asset relationship graph — never offensive content.
+    ATTACK_PATH = "ATTACK_PATH"
+    THREAT_SCENARIO = "THREAT_SCENARIO"
 
 
 class MessageRole(StrEnum):

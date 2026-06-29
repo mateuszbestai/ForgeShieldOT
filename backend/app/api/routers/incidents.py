@@ -167,3 +167,21 @@ def ai_incident_exec_summary(
     session.add(incident)
     session.commit()
     return response
+
+
+@router.post("/{incident_id}/ai-next-action")
+def ai_incident_next_action(
+    incident_id: uuid.UUID,
+    user: AuthenticatedUser = Depends(require_role(*SOC_OPERATIONS)),
+    session: Session = Depends(get_session),
+) -> AIChatResponse:
+    incident = incident_service.get_incident(session, incident_id)
+    return run_ai_query(
+        session,
+        user_id=user.id,
+        actor_email=user.email,
+        use_case=AIUseCase.NEXT_ACTION,
+        entity_id=incident.id,
+        question="Recommend the single safest next response action for this incident.",
+        conversation_id=None,
+    )

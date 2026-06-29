@@ -343,13 +343,27 @@ export default function AssetDetail() {
           )}
         </TabsContent>
 
-        <TabsContent value="ai">
+        <TabsContent value="ai" className="space-y-4">
           <AiActionCard
             title="Ask AI about this asset"
             description="Grounded risk analysis with safe OT actions only."
             buttonLabel="Analyze asset risk"
             mutationFn={() => aiApi.chat({ question: `Assess the OT risk for asset ${asset.asset_tag}.`, use_case: "ASSET_RISK", entity_id: asset.id })}
           />
+          <AiActionCard
+            title="Next best defensive action"
+            description="The single safest next step, grounded in this asset's evidence."
+            buttonLabel="Recommend next action"
+            mutationFn={() => assetsApi.aiNextAction(asset.id)}
+          />
+          {writable && (
+            <AiActionCard
+              title="Model attack paths (defensive)"
+              description="Map plausible ATT&CK-for-ICS paths across this asset's blast radius, with detection gaps and safe mitigations."
+              buttonLabel="Simulate attack path"
+              mutationFn={() => assetsApi.aiAttackPath(asset.id)}
+            />
+          )}
         </TabsContent>
       </Tabs>
 
