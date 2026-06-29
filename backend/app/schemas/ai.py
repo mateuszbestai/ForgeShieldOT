@@ -29,6 +29,11 @@ class AIChatResponse(BaseModel):
     safe_ot_actions: list[str]
     attack_path: list[AttackPathStep] = []
     reasoning: str | None = None
+    # "analysis" for a grounded answer; "greeting"/"help"/"out_of_scope" for a
+    # non-task reply (the UI then drops the confidence/citation chrome).
+    intent: str = "analysis"
+    # Clickable starter questions, offered with capability/greeting replies.
+    suggestions: list[str] = []
     disclaimer: str
     provider_name: str
     model_name: str
@@ -45,6 +50,7 @@ class AIMessageRead(BaseModel):
     safe_ot_actions: list[str]
     attack_path: list[dict] = []
     reasoning: str | None = None
+    intent: str = "analysis"
     use_case: AIUseCase
     created_at: datetime
 

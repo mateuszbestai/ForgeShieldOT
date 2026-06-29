@@ -32,6 +32,9 @@ class AIMessage(UUIDMixin, TimestampMixin, table=True):
     attack_path: list[dict] = Field(default_factory=list, sa_column=json_column())
     # The model's reasoning trace, captured when the server exposes it.
     reasoning: str | None = None
+    # Response intent: "analysis" (grounded answer) or "greeting"/"help"/
+    # "out_of_scope" for a triaged non-task reply (no model inference).
+    intent: str = Field(default="analysis")
     provider_name: str | None = None
     model_name: str | None = None
     latency_ms: int | None = None

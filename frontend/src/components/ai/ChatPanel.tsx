@@ -111,7 +111,7 @@ export function ChatPanel({
                   {turn.question}
                 </div>
               </div>
-              {turn.answer && <AnswerCard answer={turn.answer} />}
+              {turn.answer && <AnswerCard answer={turn.answer} onSuggestion={send} />}
               {turn.error && (
                 <Card className="border-destructive/30 bg-destructive/5 p-4">
                   <div className="flex gap-2 text-sm">

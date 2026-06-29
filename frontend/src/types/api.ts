@@ -122,6 +122,10 @@ export interface AIAnswer {
   safe_ot_actions: string[];
   attack_path?: AttackPathStep[];
   reasoning?: string | null;
+  // "analysis" = grounded answer; "greeting"/"help"/"out_of_scope" = plain reply.
+  intent?: string;
+  // Clickable starter questions offered with capability/greeting replies.
+  suggestions?: string[];
   disclaimer: string;
   provider_name?: string;
   model_name?: string;

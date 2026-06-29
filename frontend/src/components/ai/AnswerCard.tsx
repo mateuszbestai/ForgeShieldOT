@@ -19,8 +19,19 @@ function confidenceLabel(c: string): string {
   return c || "—";
 }
 
-export function AnswerCard({ answer, className }: { answer: AIAnswer; className?: string }) {
+export function AnswerCard({
+  answer,
+  className,
+  onSuggestion,
+}: {
+  answer: AIAnswer;
+  className?: string;
+  onSuggestion?: (q: string) => void;
+}) {
   const confKey = (answer.confidence || "").toUpperCase();
+  // A non-task reply (greeting/help/out-of-scope) is rendered as a plain message:
+  // no confidence badge, no "grounded in" — just the capability text + suggestions.
+  const isAnalysis = !answer.intent || answer.intent === "analysis";
   return (
     <Card className={cn("border-primary/20", className)}>
       <CardHeader className="flex-row items-center justify-between gap-2 space-y-0 pb-3">
@@ -28,16 +39,35 @@ export function AnswerCard({ answer, className }: { answer: AIAnswer; className?
           <Sparkles className="h-4 w-4 text-primary" />
           AI Analyst
         </div>
-        <Badge
-          variant="outline"
-          className={cn("border", CONFIDENCE_STYLES[confKey] ?? CONFIDENCE_STYLES.LOW)}
-        >
-          {confidenceLabel(answer.confidence)}
-        </Badge>
+        {isAnalysis && (
+          <Badge
+            variant="outline"
+            className={cn("border", CONFIDENCE_STYLES[confKey] ?? CONFIDENCE_STYLES.LOW)}
+          >
+            {confidenceLabel(answer.confidence)}
+          </Badge>
+        )}
       </CardHeader>
       <CardContent className="space-y-4">
         {answer.summary && (
-          <p className="text-sm leading-relaxed text-foreground">{answer.summary}</p>
+          <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+            {answer.summary}
+          </p>
+        )}
+
+        {answer.suggestions && answer.suggestions.length > 0 && onSuggestion && (
+          <div className="flex flex-wrap gap-2">
+            {answer.suggestions.map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => onSuggestion(s)}
+                className="rounded-full border border-border bg-muted/50 px-3 py-1.5 text-xs transition-colors hover:bg-accent hover:text-accent-foreground"
+              >
+                {s}
+              </button>
+            ))}
+          </div>
         )}
 
         {answer.findings?.length > 0 && (

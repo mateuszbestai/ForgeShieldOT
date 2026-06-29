@@ -54,6 +54,11 @@ class AIAnswer(BaseModel):
     assumptions: list[str] = []
     safe_ot_actions: list[str] = []
     attack_path: list[AttackPathStep] = []  # only set for ATTACK_PATH/THREAT_SCENARIO
+    # "analysis" = a normal grounded answer. The model sets "greeting"/"out_of_scope"
+    # when the input isn't an answerable OT-security question, so the UI can render a
+    # plain capability reply instead of a fabricated analysis. Most non-task inputs
+    # are caught earlier (cheaply) by app.ai.triage; this is the model-side net.
+    intent: Literal["analysis", "greeting", "help", "out_of_scope", "clarify"] = "analysis"
     disclaimer: str = DEFAULT_DISCLAIMER
 
 

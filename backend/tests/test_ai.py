@@ -7,6 +7,7 @@ import re
 import pytest
 
 from app.ai.schema import DEFAULT_DISCLAIMER, validate_answer
+from app.ai.triage import triage_chat
 
 # A citation ref always looks like ``<type>:<id>`` for an internal record type.
 _INTERNAL_REF = re.compile(
@@ -116,3 +117,43 @@ def test_evidence_map_endpoint_is_grounded_in_the_control(client, auth):
     assert any(r.startswith("control:") for r in refs)
     for ref in refs:
         assert _INTERNAL_REF.match(ref), ref
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["hi", "hello", "Hey!", "  thanks  ", "good morning", "what can you do?", "help", "ok"],
+)
+def test_triage_catches_non_task_inputs(text):
+    assert triage_chat(text) is not None
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "What are the top OT risks?",
+        "Why is asset ENERGY-PLC-S7-01 risky?",
+        "Can you help me assess the risk of the SCADA server?",
+        "Translate the latest RDP detection into plain language.",
+    ],
+)
+def test_triage_lets_real_questions_through(text):
+    assert triage_chat(text) is None
+
+
+def test_chat_greeting_returns_capability_reply_without_model_call(client, auth):
+    resp = client.post(
+        "/api/ai/chat",
+        json={"question": "hello", "use_case": "CHAT"},
+        headers=auth("ADMIN"),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    # A greeting is a non-task reply: capability message, no fabricated analysis.
+    assert body["intent"] == "greeting"
+    assert body["citations"] == []
+    assert body["safe_ot_actions"] == []
+    assert body["summary"]
+    assert body["suggestions"]  # clickable starter questions are offered
+    # No model inference happened — the triage gate answered it.
+    assert body["provider_name"] == "triage"
+    assert body["latency_ms"] == 0
